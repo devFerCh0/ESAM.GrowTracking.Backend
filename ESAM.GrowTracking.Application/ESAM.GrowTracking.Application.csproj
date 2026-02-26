@@ -1,0 +1,86 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Features\**" />
+    <EmbeddedResource Remove="Features\**" />
+    <None Remove="Features\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Services\LoginService.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Features\Auth\LoginAssumedRole\LoginAssumedRoleCommand.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\LoginAssumedRoleCommandHandler.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\LoginAssumedRoleCommandValidator.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\LoginAssumedRoleMapping.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\Projections\LoginAssumedRoleUserSessionUserWorkProfileSelectedProjection.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\Projections\LoginAssumedRoleUserSessionUserWorkProfileSelectedUserRoleCampusSelectedProjection.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\ReadModels\LoginAssumedRoleUserSessionUserWorkProfileSelectedReadModel.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\ReadModels\LoginAssumedRoleUserSessionUserWorkProfileSelectedUserRoleCampusSelectedReadModel.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\LoginAssumedWorkProfileCommand.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\LoginAssumedWorkProfileCommandHandler.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\LoginAssumedWorkProfileCommandValidator.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\LoginAssumedWorkProfileMapping.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\Projections\LoginAssumedWorkProfileUserProjection.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\Projections\LoginAssumedWorkProfileUserSessionProjection.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\Projections\LoginAssumedWorkProfileUserSessionUserWorkProfileSelectedProjection.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\Projections\LoginAssumedWorkProfileUserWorkProfileProjection.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\ReadModels\LoginAssumedWorkProfileReadModel.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\ReadModels\LoginAssumedWorkProfileUserReadModel.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\ReadModels\LoginAssumedWorkProfileUserSessionReadModel.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\ReadModels\LoginAssumedWorkProfileUserSessionUserWorkProfileSelectedReadModel.cs" />
+    <Compile Include="Features\Auth\LoginAssumedWorkProfile\ReadModels\LoginAssumedWorkProfileUserWorkProfileReadModel.cs" />
+    <Compile Include="Features\Auth\LoginUserRoleCampuses\LoginUserRoleCampusMapping.cs" />
+    <Compile Include="Features\Auth\LoginUserRoleCampuses\LoginUserRoleCampusProjection.cs" />
+    <Compile Include="Features\Auth\LoginUserRoleCampuses\LoginUserRoleCampusQuery.cs" />
+    <Compile Include="Features\Auth\LoginUserRoleCampuses\LoginUserRoleCampusQueryHandler.cs" />
+    <Compile Include="Features\Auth\LoginUserRoleCampuses\LoginUserRoleCampusQueryValidator.cs" />
+    <Compile Include="Features\Auth\LoginUserRoleCampuses\LoginUserRoleCampusReadModel.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\Projections\LoginAssumedRoleUserProjection.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\Projections\LoginAssumedRoleUserRoleCampusProjection.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\Projections\LoginAssumedRoleUserSessionProjection.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\Projections\LoginAssumedRoleUserWorkProfileProjection.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\ReadModels\LoginAssumedRoleReadModel.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\ReadModels\LoginAssumedRoleUserReadModel.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\ReadModels\LoginAssumedRoleUserRoleCampusReadModel.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\ReadModels\LoginAssumedRoleUserSessionReadModel.cs" />
+    <Compile Include="Features\Auth\LoginAssumedRole\ReadModels\LoginAssumedRoleUserWorkProfileReadModel.cs" />
+    <Compile Include="Features\Auth\Login\LoginCommand.cs" />
+    <Compile Include="Features\Auth\Login\LoginCommandHandler.cs" />
+    <Compile Include="Features\Auth\Login\LoginCommandValidator.cs" />
+    <Compile Include="Features\Auth\Login\LoginMapping.cs" />
+    <Compile Include="Features\Auth\Login\Projections\LoginUserProjection.cs" />
+    <Compile Include="Features\Auth\Login\Projections\LoginUserWorkProfileProjection.cs" />
+    <Compile Include="Features\Auth\Login\ReadModels\LoginReadModel.cs" />
+    <Compile Include="Features\Auth\Login\ReadModels\LoginUserReadModel.cs" />
+    <Compile Include="Features\Auth\Login\ReadModels\LoginUserWorkProfileReadModel.cs" />
+    <Compile Include="Features\Auth\Logout\LogoutCommand.cs" />
+    <Compile Include="Features\Auth\Logout\LogoutCommandHandler.cs" />
+    <Compile Include="Features\Auth\Logout\LogoutCommandValidator.cs" />
+    <Compile Include="Features\Auth\Refresh\RefreshCommand.cs" />
+    <Compile Include="Features\Auth\Refresh\RefreshCommandHandler.cs" />
+    <Compile Include="Features\Auth\Refresh\RefreshCommandValidator.cs" />
+    <Compile Include="Features\Auth\Refresh\RefreshMapping.cs" />
+    <Compile Include="Features\Auth\Refresh\RefreshReadModel.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AutoMapper" Version="16.0.0" />
+    <PackageReference Include="FluentValidation" Version="12.1.1" />
+    <PackageReference Include="MediatR" Version="14.0.0" />
+	<FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ESAM.GrowTracking.Domain\ESAM.GrowTracking.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

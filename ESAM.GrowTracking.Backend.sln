@@ -1,0 +1,68 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36811.4
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ESAM.GrowTracking.API", "ESAM.GrowTracking.API\ESAM.GrowTracking.API.csproj", "{B593E392-A741-4DC3-8027-70817445F6B5}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ESAM.GrowTracking.Application", "ESAM.GrowTracking.Application", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ESAM.GrowTracking.Application", "ESAM.GrowTracking.Application\ESAM.GrowTracking.Application.csproj", "{D33B5287-2EB1-40C6-8A19-A5234A3BBD3A}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ESAM.GrowTracking.Domain", "ESAM.GrowTracking.Domain", "{07399891-D6C0-4251-9DF4-D173028E0A14}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ESAM.GrowTracking.Domain", "ESAM.GrowTracking.Domain\ESAM.GrowTracking.Domain.csproj", "{677C7CA1-923F-4F86-8F04-B882324C9072}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ESAM.GrowTracking.Infrastructure", "ESAM.GrowTracking.Infrastructure", "{29E15A8C-86F8-45E2-BDE4-AB6769119C8A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ESAM.GrowTracking.Infrastructure", "ESAM.GrowTracking.Infrastructure\ESAM.GrowTracking.Infrastructure.csproj", "{5734EB58-8D76-4C66-BB27-FA4736894B6E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ESAM.GrowTracking.Persistence", "ESAM.GrowTracking.Persistence", "{3850A487-9F73-48E4-AFDA-ACD476663357}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ESAM.GrowTracking.Persistence", "ESAM.GrowTracking.Persistence\ESAM.GrowTracking.Persistence.csproj", "{6B97585F-CECB-4792-9D5C-C35F6679B950}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Elementos de la solución", "Elementos de la solución", "{D107F4C8-89CC-BEA8-D3D7-CA6B7733353D}"
+	ProjectSection(SolutionItems) = preProject
+		Pendientes.md = Pendientes.md
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B593E392-A741-4DC3-8027-70817445F6B5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B593E392-A741-4DC3-8027-70817445F6B5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B593E392-A741-4DC3-8027-70817445F6B5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B593E392-A741-4DC3-8027-70817445F6B5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D33B5287-2EB1-40C6-8A19-A5234A3BBD3A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D33B5287-2EB1-40C6-8A19-A5234A3BBD3A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D33B5287-2EB1-40C6-8A19-A5234A3BBD3A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D33B5287-2EB1-40C6-8A19-A5234A3BBD3A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{677C7CA1-923F-4F86-8F04-B882324C9072}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{677C7CA1-923F-4F86-8F04-B882324C9072}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{677C7CA1-923F-4F86-8F04-B882324C9072}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{677C7CA1-923F-4F86-8F04-B882324C9072}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5734EB58-8D76-4C66-BB27-FA4736894B6E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5734EB58-8D76-4C66-BB27-FA4736894B6E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5734EB58-8D76-4C66-BB27-FA4736894B6E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5734EB58-8D76-4C66-BB27-FA4736894B6E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6B97585F-CECB-4792-9D5C-C35F6679B950}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6B97585F-CECB-4792-9D5C-C35F6679B950}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6B97585F-CECB-4792-9D5C-C35F6679B950}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6B97585F-CECB-4792-9D5C-C35F6679B950}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{D33B5287-2EB1-40C6-8A19-A5234A3BBD3A} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{677C7CA1-923F-4F86-8F04-B882324C9072} = {07399891-D6C0-4251-9DF4-D173028E0A14}
+		{5734EB58-8D76-4C66-BB27-FA4736894B6E} = {29E15A8C-86F8-45E2-BDE4-AB6769119C8A}
+		{6B97585F-CECB-4792-9D5C-C35F6679B950} = {3850A487-9F73-48E4-AFDA-ACD476663357}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {0BA06ED7-91B5-4F06-B759-3A9148D4F24E}
+	EndGlobalSection
+EndGlobal
