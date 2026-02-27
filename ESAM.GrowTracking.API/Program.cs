@@ -19,6 +19,7 @@ using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -149,6 +150,10 @@ builder.Services.AddMediatR(mrsc => mrsc.RegisterServicesFromAssembly(typeof(ESA
     .AddValidatorsFromAssemblyContaining<ESAM.GrowTracking.Application.Features.Auth.LoginUserRoleCampuses.LoginUserRoleCampusQueryValidator>();
 var jwtSettings = builder.Configuration.GetSection("JwtSettings").Get<JwtSetting>() ?? throw new InvalidOperationException("JwtSettings son obligatorios.");
 var keyBytes = Encoding.UTF8.GetBytes(jwtSettings.SecretKey);
+var jsonOptions = new JsonSerializerOptions
+{
+    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+};
 builder.Services.AddAuthentication(ao => { ao.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme; ao.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme; })
     .AddJwtBearer(jbo =>
     {
@@ -165,80 +170,134 @@ builder.Services.AddAuthentication(ao => { ao.DefaultAuthenticateScheme = JwtBea
             ValidateLifetime = true,
             ClockSkew = TimeSpan.Zero
         };
-        //jbo.Events = new JwtBearerEvents
-        //{
-        //    OnTokenValidated = async ctx =>
-        //    {
-        //        var blacklistedTokenService = ctx.HttpContext.RequestServices
-        //            .GetService<IBlacklistedTokenService>();
-        //        if (blacklistedTokenService is null)
-        //            return;
-        //        var jti = ctx.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti);
-        //        if (string.IsNullOrWhiteSpace(jti))
-        //        {
-        //            ctx.Fail("Access token sin identificador jti; token rechazado.");
-        //            return;
-        //        }
-        //        try
-        //        {
-        //            var isBlacklisted = await blacklistedTokenService.IsAccessTokenBlacklistedAsync(jti, ctx.HttpContext.RequestAborted);
-        //            if (isBlacklisted)
-        //                ctx.Fail("Access token revocado.");
-        //        }
-        //        catch (OperationCanceledException)
-        //        {
-        //        }
-        //        catch (Exception ex)
-        //        {
-        //            var log = ctx.HttpContext.RequestServices.GetRequiredService<ILogger<JwtBearerEvents>>();
-        //            log.LogError(ex, "Error al verificar blacklist para jti={Jti} TraceId={TraceId}.", jti, ctx.HttpContext.TraceIdentifier);
-        //            ctx.Fail("Error al verificar estado del token.");
-        //        }
-        //    }
-        //};
-        //jbo.Events = new JwtBearerEvents
-        //{
-        //    OnTokenValidated = async context =>
-        //    {
-        //        var blacklistService = context.HttpContext.RequestServices.GetService<IBlacklistedTokenService>();
-        //        if (blacklistService is null)
-        //            return;
-        //        var jti = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti);
-        //        if (string.IsNullOrWhiteSpace(jti))
-        //        {
-        //            context.Fail("Token no contiene claim 'jti'.");
-        //            return;
-        //        }
-        //        var isBlacklisted = await blacklistService.IsAccessTokenBlacklistedAsync(jti, context.HttpContext.RequestAborted);
-        //        if (isBlacklisted)
-        //            context.Fail("Access token revocado.");
-        //    }
-        //};
-        //jbo.Events = new JwtBearerEvents
-        //{
-        //    OnTokenValidated = async context =>
-        //    {
-        //        var jti = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti);
-        //        if (string.IsNullOrWhiteSpace(jti))
-        //        {
-        //            context.Fail("Token missing required 'jti' claim.");
-        //            return;
-        //        }
-        //        var blacklistService = context.HttpContext.RequestServices
-        //            .GetRequiredService<IBlacklistedTokenService>();
-        //        var isBlacklisted = await blacklistService
-        //            .IsAccessTokenBlacklistedAsync(jti, context.HttpContext.RequestAborted);
-        //        if (isBlacklisted)
-        //        {
-        //            context.Fail("Token has been revoked.");
-        //            var log = context.HttpContext.RequestServices
-        //                .GetRequiredService<ILogger<JwtBearerEvents>>();
-        //            log.LogWarning(
-        //                "Access token revocado bloqueado. Jti={Jti} TraceId={TraceId}",
-        //                jti, context.HttpContext.TraceIdentifier);
-        //        }
-        //    }
-        //};
+        jbo.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var logger = context.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("JwtBearerEvents");
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(context.Request.Headers.Authorization.ToString()))
+                        return Task.CompletedTask;
+                    var path = context.Request.Path;
+                    if (path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var accessTokenFromQuery = context.Request.Query["access_token"].FirstOrDefault();
+                        if (!string.IsNullOrWhiteSpace(accessTokenFromQuery))
+                        {
+                            context.Token = accessTokenFromQuery;
+                            logger.LogDebug("Token recuperado de Query String para SignalR en: {Path}", path);
+                            return Task.CompletedTask;
+                        }
+                    }
+                    if (context.Request.Headers.TryGetValue("X-Access-Token", out var xAccess))
+                    {
+                        var headerToken = xAccess.FirstOrDefault();
+                        if (!string.IsNullOrWhiteSpace(headerToken))
+                        {
+                            context.Token = headerToken;
+                            logger.LogDebug("Token recuperado de header X-Access-Token.");
+                            return Task.CompletedTask;
+                        }
+                    }
+                    if (context.Request.Cookies.TryGetValue("AccessToken", out var cookieToken))
+                        if (!string.IsNullOrWhiteSpace(cookieToken))
+                        {
+                            context.Token = cookieToken;
+                            logger.LogDebug("Token recuperado desde Cookie.");
+                            return Task.CompletedTask;
+                        }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Excepción al intentar extraer el token en OnMessageReceived.");
+                }
+                return Task.CompletedTask;
+            },
+            OnTokenValidated = async ctx => { },
+            OnAuthenticationFailed = context =>
+            {
+                var logger = context.HttpContext.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("JwtBearerEvents") ?? NullLogger.Instance;
+                try
+                {
+                    if (context.Exception is SecurityTokenExpiredException stex)
+                    {
+                        logger.LogInformation("Autenticación fallida: Token expirado.");
+                        context.Response.Headers["X-Token-Expired"] = "true";
+                        if (stex.Expires != DateTime.MinValue)
+                            context.Response.Headers["X-Token-Expired-At"] = stex.Expires.ToString("o");
+                    }
+                    else
+                        logger.LogWarning(context.Exception, "Autenticación fallida: {Message}", context.Exception.Message);
+                }
+                catch
+                {
+                }
+                return Task.CompletedTask;
+            },
+            OnChallenge = async context =>
+            {
+                if (context.Response.HasStarted) return;
+                context.HandleResponse();
+                try
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    context.Response.ContentType = "application/json; charset=utf-8";
+                    var message = string.IsNullOrWhiteSpace(context.ErrorDescription) ? "Acceso no autorizado. El token es inválido o no fue proporcionado." : context.ErrorDescription;
+                    var payload = new { success = false, errors = new[] { new { code = "unauthorized", message } } };
+                    //var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                    var json = JsonSerializer.Serialize(payload, jsonOptions);
+                    await context.Response.WriteAsync(json);
+                }
+                catch (Exception ex)
+                {
+                    var logger = context.HttpContext.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("JwtBearerEvents.OnChallenge");
+                    logger?.LogError(ex, "Error crítico enviando respuesta 401.");
+                }
+            },
+            OnForbidden = async context =>
+            {
+                if (context.Response.HasStarted)
+                    return;
+                var logger = context.HttpContext.RequestServices.GetService<ILoggerFactory>() ?.CreateLogger("JwtBearerEvents.OnForbidden") ?? NullLogger.Instance;
+                logger.LogWarning("Acceso Denegado (403): El usuario {User} intentó acceder a {Path}", context.HttpContext.User?.Identity?.Name ?? "Anónimo", context.HttpContext.Request.Path);
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.ContentType = "application/json; charset=utf-8";
+                var payload = new { success = false, errors = new[] { new { code = "forbidden", message = "No tienes permisos para realizar esta acción." } } };
+                //var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                var json = JsonSerializer.Serialize(payload, jsonOptions);
+                await context.Response.WriteAsync(json);
+            }
+
+            //OnTokenValidated = async ctx =>
+            //{
+            //    var blacklistedTokenService = ctx.HttpContext.RequestServices
+            //        .GetService<IBlacklistedTokenService>();
+            //    if (blacklistedTokenService is null)
+            //        return;
+            //    var jti = ctx.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti);
+            //    if (string.IsNullOrWhiteSpace(jti))
+            //    {
+            //        ctx.Fail("Access token sin identificador jti; token rechazado.");
+            //        return;
+            //    }
+            //    try
+            //    {
+            //        var isBlacklisted = await blacklistedTokenService.IsAccessTokenBlacklistedAsync(jti, ctx.HttpContext.RequestAborted);
+            //        if (isBlacklisted)
+            //            ctx.Fail("Access token revocado.");
+            //    }
+            //    catch (OperationCanceledException)
+            //    {
+            //    }
+            //    catch (Exception ex)
+            //    {
+            //        var log = ctx.HttpContext.RequestServices.GetRequiredService<ILogger<JwtBearerEvents>>();
+            //        log.LogError(ex, "Error al verificar blacklist para jti={Jti} TraceId={TraceId}.", jti, ctx.HttpContext.TraceIdentifier);
+            //        ctx.Fail("Error al verificar estado del token.");
+            //    }
+            //}
+        };
     });
 builder.Services.AddAuthorization();
 builder.Services.Configure<ForwardedHeadersOptions>(fho =>
