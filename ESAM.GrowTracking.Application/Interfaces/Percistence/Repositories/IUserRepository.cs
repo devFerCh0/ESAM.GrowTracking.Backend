@@ -7,6 +7,10 @@ namespace ESAM.GrowTracking.Application.Interfaces.Percistence.Repositories
 {
     public interface IUserRepository : IRepository<User, int>
     {
+        Task<bool> ValidateUserStatusAsync(int id, DateTime utcNow, bool asTracking = false, CancellationToken cancellationToken = default);
+
+        Task<bool> ValidateUserSecurityAsync(int id, string securityStamp, int tokenVersion, bool asTracking = false, CancellationToken cancellationToken = default);
+
         Task<User?> GetByCredentialAsync(string credential, bool asTracking = false, CancellationToken cancellationToken = default);
 
         Task<LoginUserProjection?> GetLoginUserByIdAsync(int id, bool asTracking = false, CancellationToken cancellationToken = default);

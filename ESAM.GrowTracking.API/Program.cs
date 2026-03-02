@@ -219,207 +219,212 @@ builder.Services.AddAuthentication(ao => { ao.DefaultAuthenticateScheme = JwtBea
             },
             OnTokenValidated = async ctx =>
             {
-                // --- Punto 13: resiliencia / timeout corto para llamadas externas ---
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.HttpContext.RequestAborted);
-                cts.CancelAfter(TimeSpan.FromSeconds(2)); // ajustar según SLA
-                var ct = cts.Token;
-
-                // Resolver servicios desde DI (no obligatorio registrar todos; comprobamos null y degradamos)
-                var sp = ctx.HttpContext.RequestServices;
-                var loggerFactory = sp.GetService<ILoggerFactory>() ?? throw new InvalidOperationException("ILoggerFactory no registrado");
-                var logger = loggerFactory.CreateLogger("Auth.OnTokenValidated");
-
-                var revocationService = sp.GetService<ITokenRevocationService>();     // Punto 1
-                var userReadService = sp.GetService<IUserReadService>();         // Punto 2
-                var deviceBindingSvc = sp.GetService<IDeviceBindingService>();    // Punto 5
-                var anomalyService = sp.GetService<IAnomalyDetectionService>(); // Punto 10
-                var auditLogger = sp.GetService<IAuditLogger>();             // Puntos 9 / 12
-                var metrics = sp.GetService<IMetrics>();                 // Punto 9
-
-                string? userId = null;
-                string? jti = null;
-
-                try
-                {
-                    // Extraer principal y token (jwt puede ser null si otro validador ya lo procesó)
-                    var principal = ctx.Principal;
-                    var jwtToken = ctx.SecurityToken as JwtSecurityToken;
-
-                    // Obtener claims clave (sub / nameidentifier) y jti
-                    userId = principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                             ?? principal?.FindFirst("sub")?.Value;
-
-                    jti = principal?.FindFirst("jti")?.Value;
-
-                    // --- Punto 1: Revocación (jti) ---
-                    if (!string.IsNullOrEmpty(jti) && revocationService != null)
-                    {
-                        bool isRevoked = false;
-                        try
-                        {
-                            isRevoked = await revocationService.IsRevokedAsync(jti, ct);
-                        }
-                        catch (OperationCanceledException) { throw; } // bubbla para manejar timeout
-                        catch (Exception ex)
-                        {
-                            // No bloquear por fallo del servicio de revocación: decisión de disponibilidad
-                            logger.LogWarning(ex, "Revocation check error for jti {Jti}", jti);
-                        }
-
-                        if (isRevoked)
-                        {
-                            ctx.HttpContext.Items["AuthFailureReason"] = "token_revoked"; // Punto 12
-                            ctx.Fail("token_revoked");
-                            metrics?.IncrementAuthFailure("token_revoked");
-                            if (auditLogger != null) await auditLogger.LogAuthEventAsync(new AuthEvent(userId ?? "unknown", jti, "fail", "token_revoked", DateTime.UtcNow), ct);
-                            return;
-                        }
-                    }
-
-                    // --- Punto 2: Usuario existe y activo ---
-                    if (string.IsNullOrEmpty(userId) || userReadService == null)
-                    {
-                        ctx.HttpContext.Items["AuthFailureReason"] = "missing_subject_or_user_service_unavailable";
-                        ctx.Fail("missing_subject");
-                        metrics?.IncrementAuthFailure("missing_subject");
-                        return;
-                    }
-
-                    var user = await userReadService.GetByIdAsync(userId, ct);
-                    if (user == null || !user.IsActive)
-                    {
-                        ctx.HttpContext.Items["AuthFailureReason"] = "user_not_active";
-                        ctx.Fail("user_not_active");
-                        metrics?.IncrementAuthFailure("user_not_active");
-                        if (auditLogger != null) await auditLogger.LogAuthEventAsync(new AuthEvent(userId, jti ?? "no-jti", "fail", "user_not_active", DateTime.UtcNow), ct);
-                        return;
-                    }
-
-                    // --- Punto 4: Validaciones temporales adicionales (iat/nbf/exp defensivas) ---
-                    if (jwtToken != null)
-                    {
-                        // iat: política de edad máxima del token (ej: 30 días)
-                        if (jwtToken.Payload.Iat.HasValue)
-                        {
-                            var iat = DateTimeOffset.FromUnixTimeSeconds(jwtToken.Payload.Iat.Value).UtcDateTime;
-                            var maxTokenAge = TimeSpan.FromDays(30); // configura según política
-                            if (DateTime.UtcNow - iat > maxTokenAge)
-                            {
-                                ctx.HttpContext.Items["AuthFailureReason"] = "token_too_old";
-                                ctx.Fail("token_too_old");
-                                metrics?.IncrementAuthFailure("token_too_old");
-                                if (auditLogger != null) await auditLogger.LogAuthEventAsync(new AuthEvent(userId, jti ?? "no-jti", "fail", "token_too_old", DateTime.UtcNow), ct);
-                                return;
-                            }
-                        }
-
-                        // nbf: token not before — check con pequeña tolerancia
-                        if (jwtToken.Payload.Nbf.HasValue)
-                        {
-                            var nbf = DateTimeOffset.FromUnixTimeSeconds(jwtToken.Payload.Nbf.Value).UtcDateTime;
-                            var tolerance = TimeSpan.FromMinutes(2);
-                            if (DateTime.UtcNow + tolerance < nbf)
-                            {
-                                ctx.HttpContext.Items["AuthFailureReason"] = "token_not_yet_valid";
-                                ctx.Fail("token_not_yet_valid");
-                                metrics?.IncrementAuthFailure("token_not_yet_valid");
-                                return;
-                            }
-                        }
-
-                        // Nota: exp y validaciones básicas son manejadas por TokenValidationParameters,
-                        // aquí solo hacemos chequeos adicionales de política cuando procede.
-                    }
-
-                    // --- Punto 5: Comprobación device binding si claim presente ---
-                    var deviceId = principal?.FindFirst("device_id")?.Value ?? principal?.FindFirst("cnf")?.Value;
-                    if (!string.IsNullOrEmpty(deviceId) && deviceBindingSvc != null)
-                    {
-                        try
-                        {
-                            var bound = await deviceBindingSvc.IsDeviceBoundToUserAsync(userId, deviceId, ct);
-                            if (!bound)
-                            {
-                                ctx.HttpContext.Items["AuthFailureReason"] = "device_mismatch";
-                                ctx.Fail("device_mismatch");
-                                metrics?.IncrementAuthFailure("device_mismatch");
-                                if (auditLogger != null) await auditLogger.LogAuthEventAsync(new AuthEvent(userId, jti ?? "no-jti", "fail", "device_mismatch", DateTime.UtcNow), ct);
-                                return;
-                            }
-                        }
-                        catch (OperationCanceledException) { throw; } // timeout -> dejar que manejo superior capture
-                        catch (Exception ex)
-                        {
-                            // No bloquear por fallo en servicio de binding; opción de seguridad: fallar cerrado si prefieres
-                            logger.LogWarning(ex, "Device binding check error for user {UserId}", userId);
-                        }
-                    }
-
-                    // --- Punto 10: Detección de anomalías (heurísticas) ---
-                    if (anomalyService != null)
-                    {
-                        try
-                        {
-                            var remoteIp = ctx.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                            var anomaly = await anomalyService.EvaluateAsync(userId, remoteIp, jti, ct);
-                            if (anomaly != null && anomaly.IsHighRisk)
-                            {
-                                ctx.HttpContext.Items["AuthFailureReason"] = $"anomaly:{anomaly.Reason}";
-                                ctx.Fail("anomalous_activity");
-                                metrics?.IncrementAuthFailure("anomalous_activity");
-                                if (auditLogger != null) await auditLogger.LogAuthEventAsync(new AuthEvent(userId, jti ?? "no-jti", "fail", $"anomaly:{anomaly.Reason}", DateTime.UtcNow), ct);
-                                return;
-                            }
-                        }
-                        catch (OperationCanceledException) { throw; }
-                        catch (Exception ex)
-                        {
-                            // No bloquear por fallo en detección; registrar en debug.
-                            logger.LogDebug(ex, "Anomaly detection failed for user {UserId}", userId);
-                        }
-                    }
-
-                    // --- Punto 11: Poblar HttpContext.Items para upstream (Presentation/Application) ---
-                    ctx.HttpContext.Items["UserId"] = userId;
-                    if (!string.IsNullOrEmpty(jti)) ctx.HttpContext.Items["Jti"] = jti;
-                    // No añadimos datos sensibles; solo identificadores mínimos.
-
-                    // --- Punto 9: Logging y métricas (sin tokens ni PII) ---
-                    logger.LogInformation("Token validated for user {UserId}, jti {Jti}", userId, jti);
-                    metrics?.IncrementAuthSuccess();
-                    if (auditLogger != null) await auditLogger.LogAuthEventAsync(new AuthEvent(userId, jti ?? "no-jti", "success", "validated", DateTime.UtcNow), ct);
-
-                    // Exitosa validación: no llamar ctx.Success explícitamente; simplemente salir.
-                    return;
-                }
-                catch (OperationCanceledException)
-                {
-                    // --- Punto 13: timeout/resiliencia ---
-                    logger.LogWarning("Token validation cancelled/timed out for user {UserId}", userId);
-                    ctx.HttpContext.Items["AuthFailureReason"] = "validation_timeout";
-                    ctx.Fail("validation_timeout");
-                    sp.GetService<IMetrics>()?.IncrementAuthFailure("validation_timeout");
-                    if (auditLogger != null)
-                    {
-                        // registrar sin bloquear (usar CancellationToken.None porque el original ya canceló)
-                        await auditLogger.LogAuthEventAsync(new AuthEvent(userId ?? "unknown", jti ?? "no-jti", "fail", "validation_timeout", DateTime.UtcNow), CancellationToken.None);
-                    }
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    // --- Punto 12: manejo estandarizado de errores ---
-                    logger.LogError(ex, "Unexpected error during token validation for user {UserId}", userId);
-                    ctx.HttpContext.Items["AuthFailureReason"] = "validation_error";
-                    ctx.Fail("validation_error");
-                    sp.GetService<IMetrics>()?.IncrementAuthFailure("validation_error");
-                    if (auditLogger != null)
-                    {
-                        await auditLogger.LogAuthEventAsync(new AuthEvent(userId ?? "unknown", jti ?? "no-jti", "fail", "validation_error", DateTime.UtcNow), CancellationToken.None);
-                    }
-                    return;
-                }
+                // Obtener claims del token desde el Servicio: CurrentUserService
+                // Usar validaciones del Servicio
             },
+            //OnTokenValidated = async ctx =>
+            //{
+            //    // --- Punto 13: resiliencia / timeout corto para llamadas externas ---
+            //    using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.HttpContext.RequestAborted);
+            //    cts.CancelAfter(TimeSpan.FromSeconds(2)); // ajustar según SLA
+            //    var ct = cts.Token;
+
+            //    // Resolver servicios desde DI (no obligatorio registrar todos; comprobamos null y degradamos)
+            //    var sp = ctx.HttpContext.RequestServices;
+            //    var loggerFactory = sp.GetService<ILoggerFactory>() ?? throw new InvalidOperationException("ILoggerFactory no registrado");
+            //    var logger = loggerFactory.CreateLogger("Auth.OnTokenValidated");
+
+            //    var revocationService = sp.GetService<ITokenRevocationService>();     // Punto 1
+            //    var userReadService = sp.GetService<IUserReadService>();         // Punto 2
+            //    var deviceBindingSvc = sp.GetService<IDeviceBindingService>();    // Punto 5
+            //    var anomalyService = sp.GetService<IAnomalyDetectionService>(); // Punto 10
+            //    var auditLogger = sp.GetService<IAuditLogger>();             // Puntos 9 / 12
+            //    var metrics = sp.GetService<IMetrics>();                 // Punto 9
+
+            //    string? userId = null;
+            //    string? jti = null;
+
+            //    try
+            //    {
+            //        // Extraer principal y token (jwt puede ser null si otro validador ya lo procesó)
+            //        var principal = ctx.Principal;
+            //        var jwtToken = ctx.SecurityToken as JwtSecurityToken;
+
+            //        // Obtener claims clave (sub / nameidentifier) y jti
+            //        userId = principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            //                 ?? principal?.FindFirst("sub")?.Value;
+
+            //        jti = principal?.FindFirst("jti")?.Value;
+
+            //        // --- Punto 1: Revocación (jti) ---
+            //        if (!string.IsNullOrEmpty(jti) && revocationService != null)
+            //        {
+            //            bool isRevoked = false;
+            //            try
+            //            {
+            //                isRevoked = await revocationService.IsRevokedAsync(jti, ct);
+            //            }
+            //            catch (OperationCanceledException) { throw; } // bubbla para manejar timeout
+            //            catch (Exception ex)
+            //            {
+            //                // No bloquear por fallo del servicio de revocación: decisión de disponibilidad
+            //                logger.LogWarning(ex, "Revocation check error for jti {Jti}", jti);
+            //            }
+
+            //            if (isRevoked)
+            //            {
+            //                ctx.HttpContext.Items["AuthFailureReason"] = "token_revoked"; // Punto 12
+            //                ctx.Fail("token_revoked");
+            //                metrics?.IncrementAuthFailure("token_revoked");
+            //                if (auditLogger != null) await auditLogger.LogAuthEventAsync(new AuthEvent(userId ?? "unknown", jti, "fail", "token_revoked", DateTime.UtcNow), ct);
+            //                return;
+            //            }
+            //        }
+
+            //        // --- Punto 2: Usuario existe y activo ---
+            //        if (string.IsNullOrEmpty(userId) || userReadService == null)
+            //        {
+            //            ctx.HttpContext.Items["AuthFailureReason"] = "missing_subject_or_user_service_unavailable";
+            //            ctx.Fail("missing_subject");
+            //            metrics?.IncrementAuthFailure("missing_subject");
+            //            return;
+            //        }
+
+            //        var user = await userReadService.GetByIdAsync(userId, ct);
+            //        if (user == null || !user.IsActive)
+            //        {
+            //            ctx.HttpContext.Items["AuthFailureReason"] = "user_not_active";
+            //            ctx.Fail("user_not_active");
+            //            metrics?.IncrementAuthFailure("user_not_active");
+            //            if (auditLogger != null) await auditLogger.LogAuthEventAsync(new AuthEvent(userId, jti ?? "no-jti", "fail", "user_not_active", DateTime.UtcNow), ct);
+            //            return;
+            //        }
+
+            //        // --- Punto 4: Validaciones temporales adicionales (iat/nbf/exp defensivas) ---
+            //        if (jwtToken != null)
+            //        {
+            //            // iat: política de edad máxima del token (ej: 30 días)
+            //            if (jwtToken.Payload.Iat.HasValue)
+            //            {
+            //                var iat = DateTimeOffset.FromUnixTimeSeconds(jwtToken.Payload.Iat.Value).UtcDateTime;
+            //                var maxTokenAge = TimeSpan.FromDays(30); // configura según política
+            //                if (DateTime.UtcNow - iat > maxTokenAge)
+            //                {
+            //                    ctx.HttpContext.Items["AuthFailureReason"] = "token_too_old";
+            //                    ctx.Fail("token_too_old");
+            //                    metrics?.IncrementAuthFailure("token_too_old");
+            //                    if (auditLogger != null) await auditLogger.LogAuthEventAsync(new AuthEvent(userId, jti ?? "no-jti", "fail", "token_too_old", DateTime.UtcNow), ct);
+            //                    return;
+            //                }
+            //            }
+
+            //            // nbf: token not before — check con pequeña tolerancia
+            //            if (jwtToken.Payload.Nbf.HasValue)
+            //            {
+            //                var nbf = DateTimeOffset.FromUnixTimeSeconds(jwtToken.Payload.Nbf.Value).UtcDateTime;
+            //                var tolerance = TimeSpan.FromMinutes(2);
+            //                if (DateTime.UtcNow + tolerance < nbf)
+            //                {
+            //                    ctx.HttpContext.Items["AuthFailureReason"] = "token_not_yet_valid";
+            //                    ctx.Fail("token_not_yet_valid");
+            //                    metrics?.IncrementAuthFailure("token_not_yet_valid");
+            //                    return;
+            //                }
+            //            }
+
+            //            // Nota: exp y validaciones básicas son manejadas por TokenValidationParameters,
+            //            // aquí solo hacemos chequeos adicionales de política cuando procede.
+            //        }
+
+            //        // --- Punto 5: Comprobación device binding si claim presente ---
+            //        var deviceId = principal?.FindFirst("device_id")?.Value ?? principal?.FindFirst("cnf")?.Value;
+            //        if (!string.IsNullOrEmpty(deviceId) && deviceBindingSvc != null)
+            //        {
+            //            try
+            //            {
+            //                var bound = await deviceBindingSvc.IsDeviceBoundToUserAsync(userId, deviceId, ct);
+            //                if (!bound)
+            //                {
+            //                    ctx.HttpContext.Items["AuthFailureReason"] = "device_mismatch";
+            //                    ctx.Fail("device_mismatch");
+            //                    metrics?.IncrementAuthFailure("device_mismatch");
+            //                    if (auditLogger != null) await auditLogger.LogAuthEventAsync(new AuthEvent(userId, jti ?? "no-jti", "fail", "device_mismatch", DateTime.UtcNow), ct);
+            //                    return;
+            //                }
+            //            }
+            //            catch (OperationCanceledException) { throw; } // timeout -> dejar que manejo superior capture
+            //            catch (Exception ex)
+            //            {
+            //                // No bloquear por fallo en servicio de binding; opción de seguridad: fallar cerrado si prefieres
+            //                logger.LogWarning(ex, "Device binding check error for user {UserId}", userId);
+            //            }
+            //        }
+
+            //        // --- Punto 10: Detección de anomalías (heurísticas) ---
+            //        if (anomalyService != null)
+            //        {
+            //            try
+            //            {
+            //                var remoteIp = ctx.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            //                var anomaly = await anomalyService.EvaluateAsync(userId, remoteIp, jti, ct);
+            //                if (anomaly != null && anomaly.IsHighRisk)
+            //                {
+            //                    ctx.HttpContext.Items["AuthFailureReason"] = $"anomaly:{anomaly.Reason}";
+            //                    ctx.Fail("anomalous_activity");
+            //                    metrics?.IncrementAuthFailure("anomalous_activity");
+            //                    if (auditLogger != null) await auditLogger.LogAuthEventAsync(new AuthEvent(userId, jti ?? "no-jti", "fail", $"anomaly:{anomaly.Reason}", DateTime.UtcNow), ct);
+            //                    return;
+            //                }
+            //            }
+            //            catch (OperationCanceledException) { throw; }
+            //            catch (Exception ex)
+            //            {
+            //                // No bloquear por fallo en detección; registrar en debug.
+            //                logger.LogDebug(ex, "Anomaly detection failed for user {UserId}", userId);
+            //            }
+            //        }
+
+            //        // --- Punto 11: Poblar HttpContext.Items para upstream (Presentation/Application) ---
+            //        ctx.HttpContext.Items["UserId"] = userId;
+            //        if (!string.IsNullOrEmpty(jti)) ctx.HttpContext.Items["Jti"] = jti;
+            //        // No añadimos datos sensibles; solo identificadores mínimos.
+
+            //        // --- Punto 9: Logging y métricas (sin tokens ni PII) ---
+            //        logger.LogInformation("Token validated for user {UserId}, jti {Jti}", userId, jti);
+            //        metrics?.IncrementAuthSuccess();
+            //        if (auditLogger != null) await auditLogger.LogAuthEventAsync(new AuthEvent(userId, jti ?? "no-jti", "success", "validated", DateTime.UtcNow), ct);
+
+            //        // Exitosa validación: no llamar ctx.Success explícitamente; simplemente salir.
+            //        return;
+            //    }
+            //    catch (OperationCanceledException)
+            //    {
+            //        // --- Punto 13: timeout/resiliencia ---
+            //        logger.LogWarning("Token validation cancelled/timed out for user {UserId}", userId);
+            //        ctx.HttpContext.Items["AuthFailureReason"] = "validation_timeout";
+            //        ctx.Fail("validation_timeout");
+            //        sp.GetService<IMetrics>()?.IncrementAuthFailure("validation_timeout");
+            //        if (auditLogger != null)
+            //        {
+            //            // registrar sin bloquear (usar CancellationToken.None porque el original ya canceló)
+            //            await auditLogger.LogAuthEventAsync(new AuthEvent(userId ?? "unknown", jti ?? "no-jti", "fail", "validation_timeout", DateTime.UtcNow), CancellationToken.None);
+            //        }
+            //        return;
+            //    }
+            //    catch (Exception ex)
+            //    {
+            //        // --- Punto 12: manejo estandarizado de errores ---
+            //        logger.LogError(ex, "Unexpected error during token validation for user {UserId}", userId);
+            //        ctx.HttpContext.Items["AuthFailureReason"] = "validation_error";
+            //        ctx.Fail("validation_error");
+            //        sp.GetService<IMetrics>()?.IncrementAuthFailure("validation_error");
+            //        if (auditLogger != null)
+            //        {
+            //            await auditLogger.LogAuthEventAsync(new AuthEvent(userId ?? "unknown", jti ?? "no-jti", "fail", "validation_error", DateTime.UtcNow), CancellationToken.None);
+            //        }
+            //        return;
+            //    }
+            //},
             OnAuthenticationFailed = context =>
             {
                 var logger = context.HttpContext.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("JwtBearerEvents") ?? NullLogger.Instance;

@@ -30,6 +30,41 @@ namespace ESAM.GrowTracking.Persistence.Repositories
             }
         }
 
+
+        public async Task<bool> ValidateUserStatusAsync(int id, DateTime utcNow, bool asTracking = false, CancellationToken cancellationToken = default)
+        {
+            _logger.LogDebug("Consulta iniciada: ValidateUserStatusAsync(id: {id}, utcNow: {utcNow})", id, utcNow);
+            var query = asTracking ? _dbSet : _dbSet.AsNoTracking();
+            try
+            {
+                var validateUserStatus = await query.AnyAsync(u => u.Id == id && !u.IsDeleted && (u.LockoutEndAt == null || u.LockoutEndAt.Value <= utcNow), cancellationToken);
+                _logger.LogDebug("Consulta terminada con exito: ValidateUserStatusAsync(id: {id}, utcNow: {utcNow})", id, utcNow);
+                return validateUserStatus;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Consulta terminada con error: ValidateUserStatusAsync(id: {id}, utcNow: {utcNow})", id, utcNow);
+                throw new PersistenceException($"Consulta terminada con error: ValidateUserStatusAsync(id: {id}, utcNow: {utcNow})", ex);
+            }
+        }
+
+        public async Task<bool> ValidateUserSecurityAsync(int id, string securityStamp, int tokenVersion, bool asTracking = false, CancellationToken cancellationToken = default)
+        {
+            _logger.LogDebug("Consulta iniciada: ValidateUserSecurityAsync(id: {id}, securityStamp: {securityStamp}, tokenVersion: {tokenVersion})", id, securityStamp, tokenVersion);
+            var query = asTracking ? _dbSet : _dbSet.AsNoTracking();
+            try
+            {
+                var validateUserSecurity = await query.AnyAsync(u => u.Id == id && u.SecurityStamp == securityStamp && u.TokenVersion == tokenVersion, cancellationToken);
+                _logger.LogDebug("Consulta terminada con exito: ValidateUserSecurityAsync(id: {id}, securityStamp: {securityStamp}, tokenVersion: {tokenVersion})", id, securityStamp, tokenVersion);
+                return validateUserSecurity;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Consulta terminada con error: ValidateUserSecurityAsync(id: {id}, securityStamp: {securityStamp}, tokenVersion: {tokenVersion})", id, securityStamp, tokenVersion);
+                throw new PersistenceException($"Consulta terminada con error: ValidateUserSecurityAsync(id: {id}, securityStamp: {securityStamp}, tokenVersion: {tokenVersion})", ex);
+            }
+        }
+
         public async Task<LoginUserProjection?> GetLoginUserByIdAsync(int id, bool asTracking = false, CancellationToken cancellationToken = default)
         {
             _logger.LogDebug("Consulta iniciada: GetLoginUserByIdAsync(id: {id})", id);
