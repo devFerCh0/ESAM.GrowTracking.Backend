@@ -219,8 +219,66 @@ builder.Services.AddAuthentication(ao => { ao.DefaultAuthenticateScheme = JwtBea
             },
             OnTokenValidated = async ctx =>
             {
-                // Obtener claims del token desde el Servicio: CurrentUserService
-                // Usar validaciones del Servicio
+                var logger = ctx.HttpContext.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("JwtBearerEvents.OnTokenValidated") ?? NullLogger.Instance;
+                try
+                {
+                    if (ctx.Principal != null)
+                        ctx.HttpContext.User = ctx.Principal;
+                    var currentUserService = ctx.HttpContext.RequestServices.GetService<ICurrentUserService>();
+                    if (currentUserService == null)
+                    {
+                        logger.LogError("ICurrentUserService no resuelto en OnTokenValidated.");
+                        ctx.Fail("internal_error");
+                        return;
+                    }
+                    if (!currentUserService.IsAuthenticated)
+                    {
+                        logger.LogWarning("OnTokenValidated: Principal no autenticado.");
+                        ctx.Fail("invalid_principal");
+                        return;
+                    }
+                    if (currentUserService.AccessTokenType == null || string.IsNullOrWhiteSpace(currentUserService.Jti) ||
+                        currentUserService.UserId == null || string.IsNullOrWhiteSpace(currentUserService.SecurityStamp) ||
+                        currentUserService.TokenVersion == null)
+                    {
+                        logger.LogWarning("OnTokenValidated: Claims esenciales ausentes. AccessTokenType={AccessTokenType} JtiPresent={HasJti} UserId={UserId} SecurityStampPresent={HasSecurityStamp} TokenVersion={TokenVersion}",
+                            currentUserService.AccessTokenType?.ToString() ?? "null",
+                            !string.IsNullOrWhiteSpace(currentUserService.Jti),
+                            currentUserService.UserId?.ToString() ?? "null",
+                            !string.IsNullOrWhiteSpace(currentUserService.SecurityStamp),
+                            currentUserService.TokenVersion?.ToString() ?? "null");
+                        ctx.Fail("invalid_token_claims");
+                        return;
+                    }
+                    var validator = ctx.HttpContext.RequestServices.GetService<IUserSessionValidatorService>();
+                    if (validator == null)
+                    {
+                        logger.LogError("IUserSessionValidatorService no resuelto en OnTokenValidated.");
+                        ctx.Fail("internal_error");
+                        return;
+                    }
+                    var cancellation = ctx.HttpContext.RequestAborted;
+                    var validateResult = await validator.ValidateAccessAsync(cancellation);
+                    if (!validateResult.IsSuccess)
+                    {
+                        var errors = validateResult.Errors?.Select(e => $"{e.ErrorType}:{e.Message}") ?? Enumerable.Empty<string>();
+                        logger.LogInformation("OnTokenValidated: validación de sesión fallida para usuario {UserId}. Errores: {Errors}", currentUserService.UserId, string.Join(" | ", errors));
+                        var primaryMessage = validateResult.Errors?.FirstOrDefault()?.Message ?? "access_denied";
+                        ctx.Fail(primaryMessage);
+                        return;
+                    }
+                    logger.LogDebug("OnTokenValidated: validación de sesión exitosa para UserId={UserId}, Jti={Jti}", currentUserService.UserId, currentUserService.Jti);
+                }
+                catch (OperationCanceledException oce)
+                {
+                    logger.LogWarning(oce, "OnTokenValidated cancelado por token de cancelación.");
+                    ctx.Fail("request_canceled");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "OnTokenValidated: Excepción crítica durante la validación de sesión.");
+                    ctx.Fail("invalid_token");
+                }
             },
             //OnTokenValidated = async ctx =>
             //{
